@@ -1,3 +1,3 @@
-module github.com/scorify/check-template
+module github.com/scorify/ftp
 
 go 1.21.6

@@ -24,54 +24,32 @@ type Schema struct {
 	ExpectedOutput string `key:"expectedOutput"`
 }
 
-func ValidateConfig(config *Schema) error {
-	if config.Target == "" {
-		return fmt.Errorf("target must be provided")
+func Validate(config string) error {
+	conf := Schema{}
+
+	err := schema.Unmarshal([]byte(config), &conf)
+	if err != nil {
+		return fmt.Errorf("encountered error unmarshalling config: %v", err)
 	}
 
-	if config.Port == 0 {
-		return fmt.Errorf("port must be provided")
+	if conf.Target == "" {
+		return fmt.Errorf("target must be provided; got: %s", conf.Target)
 	}
 
-	comparisonType := []string{}
-	if config.Exists {
-		comparisonType = append(comparisonType, "exists")
+	if conf.Port == 0 {
+		return fmt.Errorf("port must be provided; got: %d", conf.Port)
 	}
 
-	if config.SubstringMatch {
-		comparisonType = append(comparisonType, "substringMatch")
+	if conf.Username == "" {
+		return fmt.Errorf("username must be provided; got: %s", conf.Username)
 	}
 
-	if config.RegexMatch {
-		comparisonType = append(comparisonType, "regexMatch")
+	if !slices.Contains([]string{"exists", "substringMatch", "regexMatch", "exactMatch", "sha256", "md5", "sha1"}, conf.MatchType) {
+		return fmt.Errorf("matchType must be one of: exists, substringMatch, regexMatch, exactMatch, sha256, md5, sha1; got: %s", conf.MatchType)
 	}
 
-	if config.ExactMatch {
-		comparisonType = append(comparisonType, "exactMatch")
-	}
-
-	if config.SHA256 {
-		comparisonType = append(comparisonType, "sha256")
-	}
-
-	if config.MD5 {
-		comparisonType = append(comparisonType, "md5")
-	}
-
-	if config.SHA1 {
-		comparisonType = append(comparisonType, "sha1")
-	}
-
-	if len(comparisonType) == 0 {
-		return fmt.Errorf("exactly one comparison type must be provided; provided none")
-	}
-
-	if len(comparisonType) > 1 {
-		return fmt.Errorf("exactly one comparison type must be provided; provided multiple: %v", comparisonType)
-	}
-
-	if config.ExpectedOutput == "" && !config.Exists {
-		return fmt.Errorf("expectedOutput must be provided for all comparison types except exists")
+	if conf.ExpectedOutput == "" && conf.MatchType != "exists" {
+		return fmt.Errorf("expectedOutput must be provided for all comparison types except exists; got: %s", conf.ExpectedOutput)
 	}
 
 	return nil

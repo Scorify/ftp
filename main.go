@@ -6,12 +6,13 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 
 	"github.com/jlaffaye/ftp"
+	"github.com/scorify/schema"
 )
 
 type Schema struct {
@@ -56,19 +57,14 @@ func Validate(config string) error {
 }
 
 func Run(ctx context.Context, config string) error {
-	schema := Schema{}
+	conf := Schema{}
 
-	err := json.Unmarshal([]byte(config), &schema)
+	err := schema.Unmarshal([]byte(config), &conf)
 	if err != nil {
-		return err
+		return fmt.Errorf("encountered error unmarshalling config: %v", err)
 	}
 
-	err = ValidateConfig(&schema)
-	if err != nil {
-		return fmt.Errorf("invalid config: %v", err)
-	}
-
-	connStr := fmt.Sprintf("%s:%d", schema.Target, schema.Port)
+	connStr := fmt.Sprintf("%s:%d", conf.Target, conf.Port)
 
 	conn, err := ftp.Dial(connStr, ftp.DialWithContext(ctx))
 	if err != nil {
@@ -76,13 +72,13 @@ func Run(ctx context.Context, config string) error {
 	}
 	defer conn.Quit()
 
-	err = conn.Login(schema.Username, schema.Password)
+	err = conn.Login(conf.Username, conf.Password)
 	if err != nil {
 		return fmt.Errorf("encountered error logging in: %v", err)
 	}
 	defer conn.Logout()
 
-	resp, err := conn.Retr(schema.File)
+	resp, err := conn.Retr(conf.File)
 	if err != nil {
 		return fmt.Errorf("encountered error retrieving file: %v", err)
 	}
@@ -97,19 +93,16 @@ func Run(ctx context.Context, config string) error {
 		return fmt.Errorf("encountered error reading response body: %v", err)
 	}
 
-	if schema.Exists {
+	switch conf.MatchType {
+	case "exists":
 		return nil
-	}
-
-	if schema.SubstringMatch {
-		if bytes.Contains(bodyBytes, []byte(schema.ExpectedOutput)) {
+	case "substringMatch":
+		if bytes.Contains(bodyBytes, []byte(conf.ExpectedOutput)) {
 			return nil
 		}
-		return fmt.Errorf("response does not match substring: %s", schema.ExpectedOutput)
-	}
-
-	if schema.RegexMatch {
-		pattern, err := regexp.Compile(schema.ExpectedOutput)
+		return fmt.Errorf("response does not match substring: %s", conf.ExpectedOutput)
+	case "regexMatch":
+		pattern, err := regexp.Compile(conf.ExpectedOutput)
 		if err != nil {
 			return fmt.Errorf("encountered error compiling regex pattern: %v", err)
 		}
@@ -117,39 +110,31 @@ func Run(ctx context.Context, config string) error {
 		if pattern.Match(bodyBytes) {
 			return nil
 		}
-		return fmt.Errorf("response does not match regex pattern: %s", schema.ExpectedOutput)
-	}
-
-	if schema.ExactMatch {
-		if string(bodyBytes) == schema.ExpectedOutput {
+		return fmt.Errorf("response does not match regex pattern: %s", conf.ExpectedOutput)
+	case "exactMatch":
+		if string(bodyBytes) == conf.ExpectedOutput {
 			return nil
 		}
 		return fmt.Errorf("response does not match expected output")
-	}
-
-	if schema.SHA256 {
+	case "sha256":
 		sha256 := fmt.Sprintf("%x", sha256.Sum256(bodyBytes))
-		if sha256 == schema.ExpectedOutput {
+		if sha256 == conf.ExpectedOutput {
 			return nil
 		}
-		return fmt.Errorf("response does not match expected sha256: %s", schema.ExpectedOutput)
-	}
-
-	if schema.MD5 {
+		return fmt.Errorf("response does not match expected sha256: %s", conf.ExpectedOutput)
+	case "md5":
 		md5 := fmt.Sprintf("%x", md5.Sum(bodyBytes))
-		if md5 == schema.ExpectedOutput {
+		if md5 == conf.ExpectedOutput {
 			return nil
 		}
-		return fmt.Errorf("response does not match expected md5: %s", schema.ExpectedOutput)
-	}
-
-	if schema.SHA1 {
+		return fmt.Errorf("response does not match expected md5: %s", conf.ExpectedOutput)
+	case "sha1":
 		sha1 := fmt.Sprintf("%x", sha1.Sum(bodyBytes))
-		if sha1 == schema.ExpectedOutput {
+		if sha1 == conf.ExpectedOutput {
 			return nil
 		}
-		return fmt.Errorf("response does not match expected sha1: %s", schema.ExpectedOutput)
+		return fmt.Errorf("response does not match expected sha1: %s; got %s", conf.ExpectedOutput, sha1)
+	default:
+		return fmt.Errorf("unknown match type: %s", conf.MatchType)
 	}
-
-	return nil
 }

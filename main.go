@@ -13,6 +13,7 @@ import (
 
 	"github.com/jlaffaye/ftp"
 	"github.com/scorify/schema"
+	"github.com/sirupsen/logrus"
 )
 
 type Schema struct {
@@ -64,6 +65,8 @@ func Run(ctx context.Context, config string) error {
 		return fmt.Errorf("encountered error unmarshalling config: %v", err)
 	}
 
+	logrus.Info("marshalled")
+
 	connStr := fmt.Sprintf("%s:%d", conf.Target, conf.Port)
 
 	conn, err := ftp.Dial(connStr, ftp.DialWithContext(ctx))
@@ -72,13 +75,13 @@ func Run(ctx context.Context, config string) error {
 	}
 	defer conn.Quit()
 
-	err = conn.Login(conf.Username, conf.Password)
+	err = login(ctx, conn, conf.Username, conf.Password)
 	if err != nil {
 		return fmt.Errorf("encountered error logging in: %v", err)
 	}
 	defer conn.Logout()
 
-	resp, err := conn.Retr(conf.File)
+	resp, err := retr(ctx, conn, conf.File)
 	if err != nil {
 		return fmt.Errorf("encountered error retrieving file: %v", err)
 	}
@@ -136,5 +139,56 @@ func Run(ctx context.Context, config string) error {
 		return fmt.Errorf("response does not match expected sha1: %s; got %s", conf.ExpectedOutput, sha1)
 	default:
 		return fmt.Errorf("unknown match type: %s", conf.MatchType)
+	}
+}
+
+func login(ctx context.Context, conn *ftp.ServerConn, username string, password string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- conn.Login(username, password)
+		close(errChan)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errChan:
+		return err
+	}
+}
+
+func retr(ctx context.Context, conn *ftp.ServerConn, file string) (*ftp.Response, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	type ret struct {
+		resp *ftp.Response
+		err  error
+	}
+
+	retChan := make(chan ret, 1)
+	go func() {
+		resp, err := conn.Retr(file)
+		retChan <- ret{
+			resp: resp,
+			err:  err,
+		}
+		close(retChan)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case ret := <-retChan:
+		return ret.resp, ret.err
 	}
 }

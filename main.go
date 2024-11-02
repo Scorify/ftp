@@ -13,7 +13,6 @@ import (
 
 	"github.com/jlaffaye/ftp"
 	"github.com/scorify/schema"
-	"github.com/sirupsen/logrus"
 )
 
 type Schema struct {
@@ -64,8 +63,6 @@ func Run(ctx context.Context, config string) error {
 	if err != nil {
 		return fmt.Errorf("encountered error unmarshalling config: %v", err)
 	}
-
-	logrus.Info("marshalled")
 
 	connStr := fmt.Sprintf("%s:%d", conf.Target, conf.Port)
 
